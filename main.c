@@ -5,6 +5,7 @@
 #include <mosquitto.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <codec2.h>
 
 int exit_all = 0;
 void DumpHex(const void *data, size_t size);
@@ -158,20 +159,13 @@ void *codec2_thread(void *ptr)
 	msleep(5);
 	system("cat /tmp/aud.bit");
 	FILE *filePtr = fopen(file_name, "rb"); // read write binary file
-	long int offset = 0;
+	long int offset = 0,sz;
 	while (1)
 	{
-		fseek(filePtr, offset, SEEK_END);
-		long int res = ftell(filePtr);
-		if ((res - offset) >= 1000)
-		{
-			offset = res;
-			system("date");
-		}
-		else
-		{
-			msleep(5);
-		}
+		fseek(filePtr, 0L, SEEK_END);
+		sz = ftell(filePtr);
+		printf("%ld",sz);
+		//fseek(filePtr, 0, SEEK_SET);
 	}
 
 	// char c;
