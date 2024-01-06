@@ -3,6 +3,8 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <mosquitto.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 int exit_all = 0;
 void DumpHex(const void *data, size_t size);
@@ -98,25 +100,92 @@ void runCommand(char *cmd, char *buffer, int size)
 	buffer[i] = 0; // null terminate string
 	pclose(stream);
 }
+long int findSize(char file_name[])
+{
+	// opening the file in read mode
+	FILE *fp = fopen(file_name, "r");
 
+	// checking if the file exist or not
+	if (fp == NULL)
+	{
+		printf("File Not Found!\n");
+		return -1;
+	}
+
+	fseek(fp, 0L, SEEK_END);
+
+	// calculating the size of the file
+	long int res = ftell(fp);
+
+	// closing the file
+	fclose(fp);
+
+	return res;
+}
+int msleep(long msec)
+{
+	struct timespec ts;
+	int res;
+
+	if (msec < 0)
+	{
+		errno = EINVAL;
+		return -1;
+	}
+
+	ts.tv_sec = msec / 1000;
+	ts.tv_nsec = (msec % 1000) * 1000000;
+
+	do
+	{
+		res = nanosleep(&ts, &ts);
+	} while (res && errno == EINTR);
+
+	return res;
+}
 void *codec2_thread(void *ptr)
 {
 	char buf[2000];
-	runCommand("br=1300; arecord -f S16_LE -c 1 -r 8000 | c2enc $br - - ", buf, 2000);
-	DumpHex(buf, 2000);
-	FILE *filePtr = fopen("aud.raw", "wb+"); // read write binary file
-	char c;
-	while ((c = fgetc(filePtr)) != EOF)
+	char *file_name = "/tmp/aud.bit";
+	system("br=1300; arecord -f S16_LE -c 1 -r 8000 | c2enc $br - - > /tmp/aud.bit &");
+	system("echo  ");
+	struct stat st;
+	do
 	{
-		if (c == '\t')
+		stat(file_name, &st);
+	} while (st.st_size < 100);
+	printf("size of audio file = %ld", st.st_size);
+	msleep(5);
+	system("cat /tmp/aud.bit");
+	FILE *filePtr = fopen(file_name, "rb"); // read write binary file
+	long int offset = 0;
+	while (1)
+	{
+		fseek(filePtr, offset, SEEK_END);
+		long int res = ftell(filePtr);
+		if ((res - offset) >= 1000)
 		{
-			fseek(filePtr, -1, SEEK_CUR);
-			fputc(' ', filePtr);
-			fseek(filePtr, 0, SEEK_CUR);
+			offset = res;
+			system("date");
+		}
+		else
+		{
+			msleep(5);
 		}
 	}
 
-	fclose(filePtr)
+	// char c;
+	// while ((c = fgetc(filePtr)) != EOF)
+	// {
+	// 	if (c == '\t')
+	// 	{
+	// 		fseek(filePtr, -1, SEEK_CUR);
+	// 		fputc(' ', filePtr);
+	// 		fseek(filePtr, 0, SEEK_CUR);
+	// 	}
+	// }
+
+	fclose(filePtr);
 }
 
 void mqtt_message_callback(struct mosquitto *mosq, void *userdata, const struct mosquitto_message *message)
