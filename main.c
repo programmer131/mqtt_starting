@@ -8,6 +8,7 @@
 #include <errno.h>
 
 int exit_all = 0;
+
 void DumpHex(const void *data, size_t size);
 void *print_message_function(void *ptr);
 void *print_led_state(void *ptr);
@@ -20,10 +21,12 @@ void mqtt_log_callback(struct mosquitto *mosq, void *userdata, int level, const 
 void mqtt_disconnect_callback(struct mosquitto *mosq, void *userdata, int result);
 void mqtt_publish_callback(struct mosquitto *mosq, void *userdata, int result);
 void mqtt_unsubscribe_callback(struct mosquitto *mosq, void *userdata, int result);
+
 // br=1300; arecord -f S16_LE -c 1 -r 8000 | ./src/c2enc $br - -
 int main()
 {
 	system("echo Hello, World!");
+	struct mosquitto *mosq;
 	pthread_t thread1, thread2;
 	char *message1 = "Thread 1";
 	char *message2 = "Thread 2";
@@ -31,7 +34,7 @@ int main()
 
 	/* Create independent threads each of which will execute function */
 
-	iret1 = pthread_create(&thread1, NULL, codec2_thread, NULL);
+	
 	// iret1 = pthread_create(&thread1, NULL, print_message_function, (void *)message1);
 	// iret2 = pthread_create(&thread1, NULL, print_message_function, (void *)message2);
 
@@ -46,11 +49,11 @@ int main()
 	printf("Thread 2 returns: %d\n", iret2);
 	pthread_join(thread2, NULL);
 	int i;
-	char *host = "broker.emqx.io";
+	char *host = "test.mosquitto.org";
 	int port = 1883;
 	int keepalive = 60;
 	bool clean_session = true;
-	struct mosquitto *mosq = NULL;
+	
 
 	mosquitto_lib_init();
 	mosq = mosquitto_new("thermostat", clean_session, NULL);
@@ -59,19 +62,20 @@ int main()
 		fprintf(stderr, "Error: Out of memory.\n");
 		return 1;
 	}
-	// mosquitto_disconnect_callback_set(mosq, mqtt_disconnect_callback);
-	// mosquitto_publish_callback_set(mosq, mqtt_publish_callback);
-	// mosquitto_unsubscribe_callback_set(mosq, mqtt_unsubscribe_callback);
-	// mosquitto_log_callback_set(mosq, mqtt_log_callback);
-	// mosquitto_connect_callback_set(mosq, mqtt_connect_callback);
-	// mosquitto_message_callback_set(mosq, mqtt_message_callback);
-	// mosquitto_subscribe_callback_set(mosq, mqtt_subscribe_callback);
+	mosquitto_disconnect_callback_set(mosq, mqtt_disconnect_callback);
+	mosquitto_publish_callback_set(mosq, mqtt_publish_callback);
+	mosquitto_unsubscribe_callback_set(mosq, mqtt_unsubscribe_callback);
+	mosquitto_log_callback_set(mosq, mqtt_log_callback);
+	mosquitto_connect_callback_set(mosq, mqtt_connect_callback);
+	mosquitto_message_callback_set(mosq, mqtt_message_callback);
+	mosquitto_subscribe_callback_set(mosq, mqtt_subscribe_callback);
 
 	if (mosquitto_connect(mosq, host, port, keepalive))
 	{
 		fprintf(stderr, "Unable to connect.\n");
 		return 1;
 	}
+	iret1 = pthread_create(&thread1, NULL, codec2_thread, (void *)mosq);
 	mosquitto_loop_forever(mosq, -1, 1);
 
 	mosquitto_destroy(mosq);
@@ -146,25 +150,51 @@ int msleep(long msec)
 }
 void *codec2_thread(void *ptr)
 {
-	char buf[2000];
-	char *file_name = "/tmp/aud.bit";
-	system("br=2400; arecord -f S16_LE -c 1 -r 8000 | c2enc $br - - > /tmp/aud.bit &");
+	//system("echo 11sdf");
+	char buf[246];
+	char *file_name = "/tmp/aud4.bit";
+	//char *file_name_write = "/tmp/aud_out.bit";
+	system("br=2400; arecord -f S16_LE -c 1 -r 8000 | c2enc $br - - > /tmp/aud4.bit &");
 	system("date");
 	struct stat st;
-	uint32_t aud_file_pointer = 0;
+	uint16_t tt=0;
+	int32_t aud_file_pointer = 0;
+	FILE *audio_fp,*audio_write_fp;
+	//system("echo 1111111");
+	//audio_write_fp = fopen(file_name_write, "wb"); // write  binary file
+	do{
+		audio_fp = fopen(file_name, "rb"); // read  binary file
+	}
+	while(audio_fp==NULL);//wait until file is created
+	
+
 	while (1)
 	{
 		do
 		{
+			msleep(100);
 			stat(file_name, &st);
-		} while ((st.st_size - aud_file_pointer) < 300);
-		aud_file_pointer += 300;
+		} while ((st.st_size - aud_file_pointer) < 234);
+
+		fread(buf,234,1,audio_fp);	
+		mosquitto_publish((struct mosquitto *)ptr, NULL, "mesh_gateway/data", 234, buf,0, false);
+		tt++;
+
+		// if(tt==10)
+		// {
+		// 	tt++;
+		// 	system("c2dec 2400 /tmp/aud_out.bit - | aplay -f S16_LE");
+		// }
+		//fwrite(buf, 246, 1, audio_write_fp);
+
+		DumpHex(buf,246);
+		aud_file_pointer += 246;
 		system("date");
 	}
 	// printf("size of audio file = %ld", st.st_size);
 	// msleep(5);
 	// system("cat /tmp/aud.bit");
-	// FILE *filePtr = fopen(file_name, "rb"); // read write binary file
+	// 
 
 	// char c;
 	// while ((c = fgetc(filePtr)) != EOF)
@@ -177,7 +207,8 @@ void *codec2_thread(void *ptr)
 	// 	}
 	// }
 
-	// fclose(filePtr);
+	 fclose(audio_fp);
+	// fclose(audio_write_fp);
 }
 
 void mqtt_message_callback(struct mosquitto *mosq, void *userdata, const struct mosquitto_message *message)
